@@ -174,6 +174,14 @@ say "Installing Cleanly into its own Python environment"
 "$INSTALL_DIR/.venv/bin/python" -m pip install --quiet "$INSTALL_DIR"
 ok "Installed"
 
+# ---- ML model (layer 2, mandatory) -----------------------------------------
+say "Downloading the ML model (one-time, ~23 MB, verified)"
+if "$INSTALL_DIR/.venv/bin/cleanly" models download; then
+  ok "ML model ready"
+else
+  warn "Couldn't download the ML model now. Cleanly will try again the first time you run it."
+fi
+
 # Marks this folder as installer-managed, so `cleanly update/uninstall` may touch it.
 echo "Installed by install.sh. Safe to remove with: cleanly uninstall" > "$INSTALL_DIR/.cleanly-installed"
 
@@ -186,6 +194,7 @@ ok "$version is ready"
 
 PATH_LINE='export PATH="$HOME/.local/bin:$PATH"  # added by cleanly installer'
 NEED_NEW_TERMINAL=0
+RC_USED=""
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
@@ -196,6 +205,7 @@ case ":$PATH:" in
         if ! grep -qF "# added by cleanly installer" "$rc" 2>/dev/null; then
           printf '\n%s\n' "$PATH_LINE" >> "$rc"
           ok "Added cleanly to your PATH in $rc"
+          RC_USED="$rc"
         fi
       fi
     done
@@ -205,7 +215,7 @@ esac
 
 echo
 if [ "$NEED_NEW_TERMINAL" = 1 ]; then
-  echo "Open a new terminal (or run: source ~/.zshrc), then:"
+  echo "Open a new terminal (or run: source ${RC_USED:-~/.bashrc}), then:"
 else
   echo "Ready! Try:"
 fi

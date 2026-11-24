@@ -23,6 +23,7 @@ Cleaned:   "What the ♪ ♪ ♪ was that?"
 - **Several ways to cover a word:** music clip, beep, mute, lowered volume (duck), reversed audio, or `***` / replacement text
 - **Three modes:** Strict (kids), Standard (adults) and Customize (start from either, add or remove words)
 - **Guided mode:** `cleanly start` asks you everything step by step, then explains every change
+- **Three security layers:** word list and ML model always run; an AI second opinion is optional (local or your own API key)
 - **Review before export:** see every word that was found, with a 2-second preview, and uncover any false matches
 - **Private by design:** no sign-up, no upload; everything runs on your computer
 
@@ -68,10 +69,34 @@ Customize settings can be saved and are offered again next time. They live in `~
 
 ---
 
+## Security layers
+
+Every file passes through layers, like defense in depth. Each layer covers the others' weak spots and may only do what it's trusted to do.
+
+| Layer | Always on? | What it does | May un-cover? |
+|---|---|---|---|
+| **1 · Word list** | yes | Finds exact listed words, variants and disguises (`f*ck`, `sh1t`) | – |
+| **2 · ML model** | yes | Scores every other sentence for insults, threats, hate and obscenity, even with no listed word. Strict mode covers them; other modes list them for review. | never |
+| **3 · AI judge** | **optional** | Checks context ("kill" in *kill time* is harmless) and spots missed harm | only context words (violence, drugs, alcohol, mild insults), **never** slurs, sexual words, harassment, self-harm or your own words |
+
+**Layer 2** uses [MiniLMv2-toxic-jigsaw](https://huggingface.co/minuva/MiniLMv2-toxic-jigsaw-onnx) (Apache-2.0, ~23 MB, runs on any CPU). It's downloaded once by the installer, pinned to an exact version and checked against a fingerprint before it's used. `cleanly models` shows its status; `cleanly models verify` re-checks it.
+
+**Layer 3** is off unless you turn it on, in guided mode or with `--ai`:
+
+| Option | Privacy | Setup |
+|---|---|---|
+| `--ai ollama` | fully local and offline | install [Ollama](https://ollama.com), then `ollama pull llama3.2:3b` |
+| `--ai anthropic` | sends short text snippets to Claude | `export ANTHROPIC_API_KEY=...` |
+| `--ai openai` | sends short text snippets to OpenAI or any compatible API (`--ai-url`) | `export OPENAI_API_KEY=...` |
+
+Only the text around flagged items is sent, never your whole file and never audio or video. Keys are read from environment variables (or a hidden prompt) and are never stored or printed. The content being cleaned is treated as untrusted: it's sent as data, never as instructions, and the AI's answer must be strict JSON. If the AI is unreachable or misbehaves, Cleanly carries on with layers 1 and 2. Details in [docs/ALGORITHM.md](docs/ALGORITHM.md#1b-security-layers).
+
+---
+
 ## Privacy
 
 - **No sign-up, no account**
-- **No upload:** works offline after the first setup (the speech models are downloaded once)
+- **No upload:** works offline after the first setup (the ML model is downloaded once). The only exception is the optional cloud AI layer, which you turn on yourself.
 - **No history:** temporary files, separated audio and transcripts are deleted after export
 
 ## Limitations
@@ -89,6 +114,8 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 | Voice separation | [Demucs](https://github.com/facebookresearch/demucs) |
 | Audio processing | numpy, soundfile |
 | Video | [FFmpeg](https://ffmpeg.org/) |
+| ML (layer 2) | [ONNX Runtime](https://onnxruntime.ai), [tokenizers](https://github.com/huggingface/tokenizers), MiniLMv2-toxic-jigsaw |
+| AI (layer 3, optional) | [Ollama](https://ollama.com), Claude API, OpenAI-compatible APIs (standard library HTTP, no SDKs) |
 | Terminal UI | [rich](https://github.com/Textualize/rich), [questionary](https://github.com/tmbo/questionary) |
 | Local web UI | Gradio / FastAPI |
 
@@ -101,6 +128,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 - [x] Strict / Standard / Customize modes
 - [x] Guided terminal mode with live progress and explained results
 - [x] One-command installers, `cleanly update` and `cleanly uninstall`
+- [x] Security layers: word list + ML model (always), AI judge (optional), hardened against prompt injection
 - [ ] Basic audio beep from a command line tool
 - [ ] Word timestamps, music clips, stitching with crossfades
 - [ ] Video support and voice separation
@@ -109,7 +137,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 
 ### v2: ideas
 - [ ] More languages (Hindi / Hinglish, Gujarati and others)
-- [ ] Optional AI check for context, with your own API key (opt-in; sends transcript text only, never the video) or a local model
+- [ ] Train our own ML model for layer 2, including Hinglish and Gujarati
 - [ ] Censor subtitles and on-screen text
 - [ ] Real-time mode
 
@@ -180,9 +208,11 @@ cleanly do notes.txt -e replace --replacement beep -r report.json
 | `-e`, `--effect` | `stars` → `d***` (default), `full` → `****`, `symbol` → `♪`, `replace` → your word |
 | `-o`, `--output` | where to save (default: `name.clean.ext`, the original is never changed) |
 | `-r`, `--report` | save a JSON report of every change (words shown masked) |
+| `--ai` | optional layer 3: `ollama` (local), `anthropic`, `openai`; with `--ai-model`, `--ai-url` |
+| `--ml-threshold` | how sure layer 2 must be before flagging (0–1, default 0.8) |
 | `--plain` / `--fast` / `-q` | serious tone / no animations / one-line output |
 
-**Housekeeping:** `cleanly update`, `cleanly uninstall`, `cleanly help`, `cleanly version`.
+**Housekeeping:** `cleanly update`, `cleanly uninstall`, `cleanly models`, `cleanly help`, `cleanly version`.
 
 Run the tests with `pip install -e ".[dev]"` and `pytest`.
 

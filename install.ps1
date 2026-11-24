@@ -168,6 +168,12 @@ Invoke-Checked $venvPy @("-m", "pip", "install", "--quiet", "--upgrade", "pip") 
 Invoke-Checked $venvPy @("-m", "pip", "install", "--quiet", $src) "Installing Cleanly"
 Ok "Installed"
 
+# ---- ML model (layer 2, mandatory) -----------------------------------------
+Say "Downloading the ML model (one-time, ~23 MB, verified)"
+& (Join-Path $venv "Scripts\cleanly.exe") models download
+if ($LASTEXITCODE -eq 0) { Ok "ML model ready" }
+else { Warn "Couldn't download the ML model now. Cleanly will try again the first time you run it." }
+
 # Marks this folder as installer-managed, so `cleanly update/uninstall` may touch it.
 Set-Content -Path (Join-Path $Dir ".cleanly-installed") -Value "Installed by install.ps1. Safe to remove with: cleanly uninstall"
 
