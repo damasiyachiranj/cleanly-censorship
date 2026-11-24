@@ -145,7 +145,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 
 ## Install
 
-One command installs everything Cleanly needs: Python 3.10+ and FFmpeg if they're missing, then Cleanly itself in its own private environment, plus the `cleanly` command.
+One command installs everything Cleanly needs: Python 3.10+ and FFmpeg if they're missing, then Cleanly itself in its own private environment, the ML model (verified against its fingerprint), plus the `cleanly` command. It shows live progress as it goes: a spinner, the elapsed time and percentage in blue, and the ML model download in red.
 
 **Windows** (PowerShell):
 ```powershell
@@ -164,6 +164,7 @@ Run the same command again to update. To remove Cleanly, add `-Uninstall` on Win
 | Installs to | `%LOCALAPPDATA%\cleanly-censorship` | `~/.local/share/cleanly-censorship` |
 | Missing software from | `winget` | `apt` / `dnf` / `pacman` / `zypper` (asks for sudo) |
 | Skip FFmpeg (text only) | `-NoFfmpeg` | `--no-ffmpeg` |
+| No animations | `-Plain` | `--plain` |
 
 > **Prefer to check before running?** Good habit. Download the script, read it, then run it:
 > `curl -fsSLO https://raw.githubusercontent.com/damasiyachiranj/cleanly-censorship/main/install.sh && less install.sh && bash install.sh`
