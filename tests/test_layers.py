@@ -54,9 +54,46 @@ def test_ml_only_suggests_in_adult_modes(builtin, tiny_scorer, mode):
     assert r.text == text  # nothing changed
 
 
-def test_ml_skips_sentences_l1_already_handled(builtin, tiny_scorer):
-    r = run(builtin, tiny_scorer, "You are trash, damn.")
+def test_ml_ignores_sentence_once_listed_words_are_gone(builtin, tiny_scorer):
+    # "damn" is handled by L1; what's left ("What the ... is this") is clean.
+    r = run(builtin, tiny_scorer, "What the damn is this.")
     assert {f.layer for f in r.findings} == {"list"}
+
+
+def test_ml_still_judges_rest_of_sentence_with_listed_word(builtin, tiny_scorer):
+    # VM bug: "You stupid piece of garbage, I will destroy you" was skipped because
+    # it contained a listed word. The rest of the sentence still deserves a look.
+    r = run(builtin, tiny_scorer, "Damn, you are worthless trash.")
+    ml_f = [f for f in r.findings if f.layer == "ml"]
+    assert len(ml_f) == 1 and ml_f[0].status == "covered"
+    assert "damn" not in ml_f[0].shown.lower() and "*" in ml_f[0].shown  # report never leaks it
+
+
+def test_strict_uses_lower_threshold():
+    from cleanly.job import Job
+    from pathlib import Path
+    assert Job(input=Path("x"), mode="strict").ml_threshold == ml.STRICT_THRESHOLD
+    assert Job(input=Path("x"), mode="standard").ml_threshold == ml.DEFAULT_THRESHOLD
+    assert Job(input=Path("x"), mode="customize", user=UserList(base="strict")).ml_threshold == ml.STRICT_THRESHOLD
+    assert Job(input=Path("x"), mode="strict", threshold=0.9).ml_threshold == 0.9
+
+
+def test_obscene_is_swearing_not_sexual():
+    assert ml.LABEL_CATEGORY["obscene"] == "swearing"
+
+
+def test_job_keeps_crlf_and_rejects_binary(tmp_path, tiny_scorer):
+    from cleanly.job import Job, JobError, run as run_job
+    from cleanly.ui import Tone
+    src = tmp_path / "w.txt"
+    src.write_bytes(b"line one\r\nwhat the hell\r\n")
+    job = Job(input=src, mode="strict", output=tmp_path / "o.txt")
+    run_job(job, Tone(chill=False, animate=False), scorer=tiny_scorer)
+    assert (tmp_path / "o.txt").read_bytes() == b"line one\r\nwhat the h***\r\n"
+    bad = tmp_path / "b.txt"
+    bad.write_bytes(b"\x00\xbf\xff\xfe")
+    with pytest.raises(JobError, match="text file"):
+        run_job(Job(input=bad, output=tmp_path / "o2.txt"), Tone(chill=False, animate=False), scorer=tiny_scorer)
 
 
 def test_ml_on_srt_and_json(builtin, tiny_scorer):
