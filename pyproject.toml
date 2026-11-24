@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cleanly-censorship"
+version = "0.1.0"
+description = "Find listed words in text, audio and video and cover them with music, a beep or replacement text. Runs locally."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "damasiyachiranj" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+cleanly = "cleanly.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/damasiyachiranj/cleanly-censorship"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cleanly = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -2,9 +2,9 @@
 
 **Find listed words in text, audio and video, and cover them with music, a beep or replacement text. Runs locally on your computer.**
 
-Cleanly was started to make content safer to consume: for parents, teachers, companies and creators who want a clean version of a video, recording or document without sending it anywhere.
+Cleanly was started to make content safer to consume: for parents, teachers and creators who want a clean version of a video, recording or document without sending it anywhere.
 
-> 🚧 **Status: early development (v1 in progress).** The features below describe what v1 is being built to do. Nothing is released yet.
+> 🚧 **Status: early development (v1 in progress).** Text, JSON and subtitle (.srt) censoring works now. Audio and video are next. The features below describe what v1 is being built to do.
 
 ---
 
@@ -98,7 +98,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 | Voice separation | [Demucs](https://github.com/facebookresearch/demucs) |
 | Audio processing | numpy, soundfile |
 | Video | [FFmpeg](https://ffmpeg.org/) |
-| CLI | Typer |
+| CLI | argparse (standard library) |
 | Local web UI | Gradio / FastAPI |
 
 ---
@@ -106,7 +106,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 ## Roadmap
 
 ### v1: English
-- [ ] Text censoring with the Standard list (JSON, severity tags)
+- [x] Text censoring with the Standard list (JSON, severity tags): `.txt`, `.json`, `.srt`
 - [ ] Basic audio beep from a command line tool
 - [ ] Word timestamps, music clips, stitching with crossfades
 - [ ] Video support and voice separation
@@ -121,16 +121,35 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 
 ---
 
-## Planned usage
-
-> Not available yet: this shows the intended command line interface.
+## Try it now (v0.1: text, JSON and subtitle files)
 
 ```bash
-pip install cleanly-censorship
+git clone https://github.com/damasiyachiranj/cleanly-censorship.git
+cd cleanly-censorship
+pip install -e .
 
-cleanly video.mp4 --mode standard --strictness strict --effect music
-cleanly notes.txt --mode customized --list my_list.json
+cleanly examples/sample.txt
+cleanly examples/sample.srt --mode customized --list examples/my_list.json --effect symbol
+cleanly notes.json --strictness moderate --effect replace --replacement "beep" --report report.json
 ```
+
+| Option | Values |
+|---|---|
+| `--mode` | `standard` (default), `customized`, `mylist` |
+| `--strictness` | `light`, `moderate`, `strict` (default) |
+| `--list` | your list file: `{"remove": [...], "add": [...]}` (see `examples/my_list.json`) |
+| `--effect` | `stars` → `d***` (default), `full` → `****`, `symbol` → `♪`, `replace` → your word |
+| `--report` | save a JSON report of what was covered (words shown masked) |
+
+Run the tests with `pip install -e ".[dev]"` and `pytest`.
+
+### Planned (audio and video)
+
+```bash
+cleanly video.mp4 --mode standard --strictness strict --effect music
+```
+
+The step-by-step algorithms are in [docs/ALGORITHM.md](docs/ALGORITHM.md).
 
 ---
 
