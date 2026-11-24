@@ -2,7 +2,7 @@
 
 **Find listed words in text, audio and video, and cover them with music, a beep or replacement text. Runs locally on your computer.**
 
-Cleanly was started to make content safer to consume: for parents, teachers and creators who want a clean version of a video, recording or document without sending it anywhere.
+Cleanly was started to make content safer to consume: for parents, teachers, companies and creators who want a clean version of a video, recording or document without sending it anywhere.
 
 > 🚧 **Status: early development (v1 in progress).** The features below describe what v1 is being built to do. Nothing is released yet.
 
