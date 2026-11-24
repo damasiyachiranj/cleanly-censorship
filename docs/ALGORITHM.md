@@ -7,7 +7,7 @@ Cleanly uses AI models only as "senses":
 - **Whisper** turns speech into words with timestamps
 - **Demucs** separates a voice from background music
 
-Every *decision* (what gets censored, where, and how) is made by the plain algorithms below. That keeps the tool predictable and explainable: for any censored word you can say exactly which list entry, severity and mode caused it.
+Every *decision* (what gets censored, where, and how) is made by the plain algorithms below. That keeps the tool predictable and explainable: for any censored word you can say exactly which list entry, category and mode caused it.
 
 ---
 
@@ -19,10 +19,9 @@ flowchart LR
 
     subgraph LIST["Build the word list"]
         direction TB
-        STD["Standard list<br/>severity tags"] --> MODE("Mode<br/>standard · customized · my list")
-        USER["Your list<br/>remove / add"] --> MODE
-        MODE --> STRICT("Strictness<br/>light · moderate · strict")
-        STRICT --> FINAL["Final list"]
+        STD["Built-in list<br/>category + level"] --> MODE("Mode<br/>strict · standard · customize")
+        USER["Customize<br/>base + let through / add"] --> MODE
+        MODE --> FINAL["Final list"]
     end
 
     IN --> TYPE{"File type?"}
@@ -49,7 +48,7 @@ flowchart LR
 
     classDef done fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#0f172a
     classDef planned fill:#fff7ed,stroke:#ea580c,stroke-dasharray:6 4,color:#7c2d12
-    class IN,TYPE,READ,STD,USER,MODE,STRICT,FINAL,MATCH,TEXTFX,OUT done
+    class IN,TYPE,READ,STD,USER,MODE,FINAL,MATCH,TEXTFX,OUT done
     style LIST fill:#f8fafc,stroke:#94a3b8
     class EXTRACT,SEP,ASR,REVIEW,AUDIOFX,STITCH,REMUX planned
 ```
@@ -62,11 +61,12 @@ flowchart LR
 
 **Word list entry**
 ```json
-{ "word": "damn", "variants": ["damned", "dammit"], "severity": "mild" }
+{ "word": "damn", "variants": ["damned", "dammit"], "category": "swearing", "level": "strict" }
 ```
 - `word`: the main form. It may be a phrase of several words.
 - `variants`: other spellings and forms that mean the same thing.
-- `severity`: one of `mild`, `strong`, `slur`.
+- `category`: swearing, sexual, insults, slurs, harassment, drugs, alcohol, violence or self-harm.
+- `level`: `standard` (covered in Standard and Strict mode) or `strict` (Strict mode only).
 
 **Token**: one word found in the input.
 ```
@@ -76,7 +76,7 @@ Token = { text, start, end }
 
 **Match**: one span to censor.
 ```
-Match = { start, end, text, entry, severity }
+Match = { start, end, text, entry, how }    # how: exact | variant | disguised | wildcard | phrase
 ```
 
 ---
@@ -84,34 +84,33 @@ Match = { start, end, text, entry, severity }
 ## 1. Build the final word list
 
 ```
-ALGORITHM BuildList(standard, mode, strictness, user_list)
-  INPUT  standard   : list of entries (built-in)
-         mode       : "standard" | "customized" | "mylist"
-         strictness : "light" | "moderate" | "strict"
-         user_list  : { remove: [words], add: [entries] }   (may be empty)
+ALGORITHM BuildList(builtin, mode, user)
+  INPUT  builtin : list of entries (built-in)
+         mode    : "strict" | "standard" | "customize"
+         user    : { base: "strict"|"standard", remove: [words], add: [entries] }
 
-  1. allowed ← severities allowed by strictness
-        light    → { slur }
-        moderate → { strong, slur }
-        strict   → { mild, strong, slur }
+  Pick(level_mode):
+      if level_mode = "strict":   return builtin                       # everything
+      if level_mode = "standard": return [ e in builtin where e.level = "standard" ]
 
-  2. if mode = "standard":
-        base ← [ e in standard where e.severity ∈ allowed ]
-     if mode = "customized":
-        base ← [ e in standard where e.severity ∈ allowed
-                                and e.word ∉ user_list.remove ]
-     if mode = "mylist":
-        base ← [ ]
+  if mode = "strict" or mode = "standard":
+      return Pick(mode)
 
-  3. if mode ≠ "standard":
-        base ← base + user_list.add          (user words always apply,
-                                               whatever the strictness)
-  4. return base
+  # customize
+  base ← Pick(user.base)
+  base ← [ e in base where e.word ∉ user.remove ]          # remove a word → all its forms pass
+  for each e in base:
+      e.variants ← [ v in e.variants where v ∉ user.remove ]  # remove one form → only that form passes
+  return base + user.add
 ```
 
-Rules:
-- Strictness filters only the **Standard** list. Words a user added themselves are always censored, since they asked for them.
-- Removing a word removes its variants too.
+| Mode | Who for | Words |
+|---|---|---|
+| Strict | kids | every entry |
+| Standard | adults | entries with level `standard` |
+| Customize | anyone | Strict or Standard, minus what you let through, plus your words |
+
+Words a user adds are always covered.
 
 ---
 
@@ -285,7 +284,7 @@ ALGORITHM Stitch(original, background, windows, effect)
 
 Every run can write a report of what was covered:
 ```json
-{ "start": 12.40, "end": 12.91, "severity": "strong",
+{ "start": 12.40, "end": 12.91, "category": "swearing", "why": "disguised",
   "rule": "standard", "masked": "f***", "needs_review": false }
 ```
 The report shows the masked form (`f***`), never the full word, so it is safe to show in kids mode.
