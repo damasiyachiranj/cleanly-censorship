@@ -1,0 +1,7 @@
+{
+  "remove": ["hell", "stupid"],
+  "add": [
+    "frick",
+    { "word": "spoiler", "variants": ["spoilers"], "severity": "mild" }
+  ]
+}
