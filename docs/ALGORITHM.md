@@ -11,6 +11,53 @@ Every *decision* (what gets censored, where, and how) is made by the plain algor
 
 ---
 
+## Flow diagram
+
+```mermaid
+flowchart LR
+    IN[/"Input file<br/>.txt · .json · .srt · audio · video"/]
+
+    subgraph LIST["Build the word list"]
+        direction TB
+        STD["Standard list<br/>severity tags"] --> MODE("Mode<br/>standard · customized · my list")
+        USER["Your list<br/>remove / add"] --> MODE
+        MODE --> STRICT("Strictness<br/>light · moderate · strict")
+        STRICT --> FINAL["Final list"]
+    end
+
+    IN --> TYPE{"File type?"}
+
+    TYPE -->|"text / JSON / SRT"| READ["Read words<br/>with positions"]
+    TYPE -->|"audio / video"| EXTRACT["Extract audio<br/>FFmpeg"]
+    EXTRACT --> SEP["Separate voice and background<br/>Demucs, optional"]
+    SEP --> ASR["Transcribe the voice<br/>word timestamps, Whisper"]
+
+    READ --> MATCH
+    ASR --> MATCH
+    FINAL --> MATCH["Find words<br/>whole words · phrases · disguises like f*ck"]
+
+    MATCH --> REVIEW["Review<br/>uncover false matches"]
+
+    REVIEW -->|text| TEXTFX["Replace text<br/>d*** · **** · ♪ · your word"]
+    REVIEW -->|"audio / video"| AUDIOFX["Cover each word<br/>music · beep · mute · duck · reverse"]
+    AUDIOFX --> STITCH["Stitch into the original<br/>20 ms crossfades"]
+    STITCH -->|video| REMUX["Put audio back into video<br/>no re-encode"]
+
+    TEXTFX --> OUT[/"Clean file + report"/]
+    STITCH -->|audio| OUT
+    REMUX --> OUT
+
+    classDef done fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#0f172a
+    classDef planned fill:#fff7ed,stroke:#ea580c,stroke-dasharray:6 4,color:#7c2d12
+    class IN,TYPE,READ,STD,USER,MODE,STRICT,FINAL,MATCH,TEXTFX,OUT done
+    style LIST fill:#f8fafc,stroke:#94a3b8
+    class EXTRACT,SEP,ASR,REVIEW,AUDIOFX,STITCH,REMUX planned
+```
+
+**Solid blue**: works now (v0.1) · **Dashed orange**: coming in v1
+
+---
+
 ## 0. Data model
 
 **Word list entry**
