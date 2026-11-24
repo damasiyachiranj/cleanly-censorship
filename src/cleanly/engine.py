@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -14,7 +15,7 @@ from . import ai as ai_mod
 from .matcher import Matcher, tokenize
 from .ml import DEFAULT_THRESHOLD, Scorer, category_for
 from .segments import Segment, sentences, split
-from .text import apply_effect
+from .text import apply_effect, mask
 from .wordlist import Entry
 
 
@@ -31,6 +32,7 @@ class Finding:
     entry: Entry | None = None
     score: float | None = None
     ai_note: str = ""          # what the LLM said, if anything
+    shown: str = ""            # safe-to-display text (listed words masked); empty = use mask/text
 
 
 @dataclass
@@ -75,18 +77,41 @@ def run_layers(content: str, kind: str, matcher: Matcher, scorer: Scorer | None,
     # ---- L2: ML model --------------------------------------------------
     if scorer is not None:
         with step("ml"):
-            spans = [(si, a, b) for si, s in enumerate(segs) for a, b in sentences(s.text)]
-            # Sentences that already contain a listed word are handled by L1.
-            todo = [(si, a, b) for si, a, b in spans
-                    if not any(f.seg == si and _overlaps((a, b), (f.start, f.end)) for f in res.findings)
-                    and len(tokenize(segs[si].text[a:b])) >= 2]
-            scores = scorer.score([segs[si].text[a:b] for si, a, b in todo]) if todo else []
-            for (si, a, b), sc in zip(todo, scores):
+            # L1 spans per segment, so each sentence finds its listed words quickly.
+            l1: dict[int, list[tuple[int, int]]] = {}
+            for f in res.findings:
+                l1.setdefault(f.seg, []).append((f.start, f.end))
+            todo, texts_to_score, shown = [], [], []
+            for si, s in enumerate(segs):
+                spans = sorted(l1.get(si, []))
+                starts = [sp[0] for sp in spans]
+                for a, b in sentences(s.text):
+                    # Listed words inside the sentence are already handled by L1, so the
+                    # model judges what's LEFT: "You ___ piece of garbage, I will destroy you"
+                    # is still harmful; "What the ___ is this ___?" is not.
+                    inside = [sp for sp in spans[max(0, bisect_left(starts, a) - 1):bisect_left(starts, b)]
+                              if _overlaps((a, b), sp)]
+                    rest, safe, pos = [], [], a
+                    for x, y in inside:
+                        x, y = max(x, a), min(y, b)
+                        rest.append(s.text[pos:x])
+                        safe.append(s.text[pos:x] + mask(s.text[x:y]))
+                        pos = y
+                    rest.append(s.text[pos:b])
+                    safe.append(s.text[pos:b])
+                    remainder = " ".join(" ".join(rest).split())
+                    if len(tokenize(remainder)) >= 2:
+                        todo.append((si, a, b))
+                        texts_to_score.append(remainder)
+                        shown.append("".join(safe))
+            scores = scorer.score(texts_to_score) if todo else []
+            for (si, a, b), sc, safe_text in zip(todo, scores, shown):
                 if sc.score >= threshold:
                     res.findings.append(Finding(
                         si, a, b, segs[si].text[a:b], "ml", category_for(sc),
                         "covered" if mode == "strict" else "review",
-                        f"ML: {sc.label.replace('_', ' ')} ({sc.score:.0%})", score=sc.score))
+                        f"ML: {sc.label.replace('_', ' ')} ({sc.score:.0%})", score=sc.score,
+                        shown=safe_text))
 
     # ---- L3: LLM judge (optional) ---------------------------------------
     if ai_cfg is not None and ai_cfg.enabled and res.findings:
@@ -99,18 +124,25 @@ def run_layers(content: str, kind: str, matcher: Matcher, scorer: Scorer | None,
 
     # ---- Apply covers ---------------------------------------------------
     texts = [s.text for s in segs]
-    for si in range(len(segs)):
-        spans = sorted({(f.start, f.end) for f in res.findings if f.seg == si and f.status == "covered"})
+    covered: dict[int, set[tuple[int, int]]] = {}
+    for f in res.findings:
+        if f.status == "covered":
+            covered.setdefault(f.seg, set()).add((f.start, f.end))
+    for si in covered:
+        spans = sorted(covered[si])
         merged: list[list[int]] = []
         for a, b in spans:
             if merged and a < merged[-1][1]:
                 merged[-1][1] = max(merged[-1][1], b)
             else:
                 merged.append([a, b])
-        t = texts[si]
-        for a, b in reversed(merged):
-            t = t[:a] + apply_effect(t[a:b], effect, replacement) + t[b:]
-        texts[si] = t
+        t, out, pos = texts[si], [], 0
+        for a, b in merged:  # one pass; no repeated copying of the whole text
+            out.append(t[pos:a])
+            out.append(apply_effect(t[a:b], effect, replacement))
+            pos = b
+        out.append(t[pos:])
+        texts[si] = "".join(out)
     res.text = rebuild(texts)
     res.findings.sort(key=lambda f: (f.seg, f.start))
     return res

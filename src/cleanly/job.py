@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from collections import Counter
 from dataclasses import dataclass, field
@@ -56,7 +57,14 @@ class Job:
     output: Path | None = None
     report: Path | None = None
     ai: AIConfig = field(default_factory=AIConfig)
-    threshold: float = ml.DEFAULT_THRESHOLD
+    threshold: float | None = None   # None = depends on the mode (see ml.threshold_for)
+
+    @property
+    def ml_threshold(self) -> float:
+        if self.threshold is not None:
+            return self.threshold
+        base = self.user.base if (self.mode == "customize" and self.user) else self.mode
+        return ml.threshold_for(base)
 
     @property
     def kind(self) -> str:
@@ -82,7 +90,7 @@ class Job:
                 parts += ["--ai-model", self.ai.model]
             if self.ai.url and self.ai.url != DEFAULT_URL.get(self.ai.provider):
                 parts += ["--ai-url", self.ai.url]
-        if self.threshold != ml.DEFAULT_THRESHOLD:
+        if self.threshold is not None:
             parts += ["--ml-threshold", str(self.threshold)]
         if self.output:
             parts += ["-o", str(self.output)]
@@ -121,7 +129,7 @@ def shown(f: Finding) -> str:
     """Listed words are always masked; ML/AI sentences contain no listed word, so they're shown, shortened."""
     if f.layer == "list":
         return mask(f.text).replace("*", "•")
-    return short(f.text)
+    return short(f.shown or f.text)
 
 
 def report_rows(o: Outcome) -> list[dict]:
@@ -132,7 +140,7 @@ def report_rows(o: Outcome) -> list[dict]:
             "layer": f.layer,
             "status": f.status,
             "category": f.category,
-            "found": mask(f.text) if f.layer == "list" else f.text,
+            "found": mask(f.text) if f.layer == "list" else (f.shown or f.text),
             "why": f.reason,
         }
         if f.status == "covered":
@@ -172,12 +180,18 @@ def run(job: Job, tone: Tone, scorer: ml.Scorer | None = None) -> Outcome:
         matcher = Matcher(build_list(load_builtin(job.language), job.mode, job.user))
 
     with tone.step("read"):
-        content = job.input.read_text(encoding="utf-8")
+        try:
+            # newline="" keeps Windows (CRLF) line endings exactly as they are.
+            with open(job.input, encoding="utf-8", newline="") as fh:
+                content = fh.read()
+        except UnicodeDecodeError as e:
+            raise JobError(f"{job.input} doesn't look like a text file (it isn't UTF-8 text), "
+                           f"so nothing was changed") from e
 
     scorer = scorer or _ensure_model(tone)
 
     result = run_layers(content, job.kind, matcher, scorer, mode=job.mode, effect=job.effect,
-                        replacement=job.replacement, threshold=job.threshold,
+                        replacement=job.replacement, threshold=job.ml_threshold,
                         ai_cfg=job.ai if job.ai.enabled else None, step=tone.step)
     outcome = Outcome(job, content, result)
 
@@ -186,13 +200,39 @@ def run(job: Job, tone: Tone, scorer: ml.Scorer | None = None) -> Outcome:
         console.print(f"  [ok]✔[/] {tone.line(f'cover_{job.effect}')} [dim]· {len(covered)} item(s)[/]")
 
     with tone.step("save"):
-        job.out_path().write_text(result.text, encoding="utf-8")
+        _write(job.out_path(), result.text, "the clean file")
 
     if job.report:
-        with tone.step("report", min_seconds=0.25):
-            job.report.write_text(json.dumps(report_rows(outcome), indent=2, ensure_ascii=False) + "\n",
-                                  encoding="utf-8")
+        try:
+            with tone.step("report", min_seconds=0.25):
+                _write(job.report, json.dumps(report_rows(outcome), indent=2, ensure_ascii=False) + "\n",
+                       "the report")
+        except JobError as e:
+            # The clean file is already saved; a report problem shouldn't hide that.
+            result.warnings.append(f"{e}. The clean file was still saved.")
+            job.report = None
     return outcome
+
+
+def _write(path: Path, text: str, what: str) -> None:
+    """Write text exactly as given (no newline translation), with errors a human can act on."""
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    except PermissionError as e:
+        hint = ""
+        try:
+            import pwd
+            owner = pwd.getpwuid(path.stat().st_uid).pw_name
+            if owner == "root" and os.geteuid() != 0:
+                hint = f" (it belongs to root, probably from a sudo run; fix: sudo chown $USER {path})"
+        except (ImportError, OSError, KeyError, AttributeError):
+            pass
+        raise JobError(f"can't write {what} to {path}: permission denied{hint}") from e
+    except IsADirectoryError as e:
+        raise JobError(f"can't write {what}: {path} is a folder") from e
+    except FileNotFoundError as e:
+        raise JobError(f"can't write {what}: the folder for {path} doesn't exist") from e
 
 
 def summarize(o: Outcome, tone: Tone) -> None:
@@ -261,8 +301,10 @@ def summarize(o: Outcome, tone: Tone) -> None:
                  f"let {len(u.remove)} word(s) through and added {len(u.add)} of your own."]
     else:
         lines = [f"Mode [bold]{job.mode}[/]: {MODE_DESC[job.mode]}."]
-    lines.append("Layer 1 (word list) found exact words; layer 2 (ML model) checked every other sentence"
-                 + (" and covered harmful ones." if job.mode == "strict" else " and only suggested, never changed."))
+    strictish = job.mode == "strict"
+    lines.append("Layer 1 (word list) found listed words. Layer 2 (ML model) read every sentence with those "
+                 f"words blanked out, flagging what scored {job.ml_threshold:.0%}+ harmful"
+                 + (" and covering it." if strictish else ", only as a suggestion (never changed)."))
     if r.ai_used:
         lines.append(f"Layer 3 (AI, {escape(job.ai.label())}) double-checked context. It may only un-cover "
                      "context words like 'kill' in 'kill time', never slurs, sexual words or your own words.")

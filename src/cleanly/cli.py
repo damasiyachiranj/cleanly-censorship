@@ -47,7 +47,7 @@ def show_help() -> None:
     [dim]customize:[/] --base strict|standard  --add w1,w2  --remove w3  [dim](or --list my_list.json)[/]
     [dim]--ai[/] off · ollama [dim](local)[/] · anthropic · openai   [dim]--ai-model NAME  --ai-url URL[/]
     [dim]  cloud keys come from env vars: ANTHROPIC_API_KEY / OPENAI_API_KEY (never typed on the command line)[/]
-    [dim]--ml-threshold 0.8[/]  how sure the ML layer must be (0-1)
+    [dim]--ml-threshold N[/]  how sure the ML layer must be, 0-1 (default 0.5 strict, 0.8 otherwise)
 
 [bold]security layers[/]  [dim]1 word list (always) · 2 ML model (always) · 3 AI (optional)[/]
   [accent]cleanly models[/]             ML model status · [accent]cleanly models download[/] · [accent]cleanly models verify[/]
@@ -150,9 +150,8 @@ def cmd_do(argv: list[str]) -> int:
         err_console.print("[err]pick a different output name[/] so the original stays safe")
         return 2
 
-    from .ml import DEFAULT_THRESHOLD
-    threshold = DEFAULT_THRESHOLD if a.ml_threshold is None else a.ml_threshold
-    if not 0 < threshold < 1:
+    threshold = a.ml_threshold
+    if threshold is not None and not 0 < threshold < 1:
         err_console.print("[err]--ml-threshold must be between 0 and 1[/]")
         return 2
     job = Job(input=src, language=a.language, mode=a.mode, user=user, effect=a.effect,
@@ -164,7 +163,8 @@ def cmd_do(argv: list[str]) -> int:
         if a.quiet:
             with console.capture():  # hide the step-by-step lines
                 o = run(job, Tone(chill=False, animate=False))
-            console.print(f"covered {len(o.matches)} word(s) -> {job.out_path()}")
+            n, r = len(o.result.by_status("covered")), len(o.result.by_status("review"))
+            console.print(f"covered {n} item(s)" + (f", {r} to review" if r else "") + f" -> {job.out_path()}")
             return 0
         o = run(job, tone)
     except (JobError, ValueError, OSError, json.JSONDecodeError) as e:

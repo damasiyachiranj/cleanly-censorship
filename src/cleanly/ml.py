@@ -31,13 +31,18 @@ MODEL = {
     "max_tokens": 256,
 }
 
-DEFAULT_THRESHOLD = 0.80
+DEFAULT_THRESHOLD = 0.80   # adult modes: only flag when the model is quite sure
+STRICT_THRESHOLD = 0.50    # kids mode: flag anything more likely harmful than not
+
+
+def threshold_for(mode: str) -> float:
+    return STRICT_THRESHOLD if mode == "strict" else DEFAULT_THRESHOLD
 
 # How the model's labels map to Cleanly's categories.
 LABEL_CATEGORY = {
     "identity_hate": "hate",
     "threat": "violence",
-    "obscene": "sexual",
+    "obscene": "swearing",   # in this dataset "obscene" means profanity, not sexual content
     "insult": "insults",
     "severe_toxic": "toxic",
     "toxic": "toxic",
@@ -157,12 +162,24 @@ class Scorer:
         self.tok.enable_padding()
         self.inputs = {i.name for i in self.session.get_inputs()}
 
-    def score(self, texts: list[str], batch: int = 16) -> list[Score]:
+    def score(self, texts: list[str]) -> list[Score]:
+        """Score each text on its own. The model is quantized per batch, so scoring texts
+        together could shift a borderline score; one at a time keeps results identical
+        for the same sentence in any file. Repeated texts are scored once."""
+        cache: dict[str, Score] = {}
+        out: list[Score] = []
+        for t in texts:
+            if t not in cache:
+                cache[t] = self._score_batch([t])[0]
+            out.append(cache[t])
+        return out
+
+    def _score_batch(self, texts: list[str]) -> list[Score]:
         import numpy as np
 
         out: list[Score] = []
-        for i in range(0, len(texts), batch):
-            enc = self.tok.encode_batch(texts[i:i + batch])
+        for i in range(0, len(texts), 16):
+            enc = self.tok.encode_batch(texts[i:i + 16])
             feed = {
                 "input_ids": np.array([e.ids for e in enc], dtype=np.int64),
                 "attention_mask": np.array([e.attention_mask for e in enc], dtype=np.int64),
