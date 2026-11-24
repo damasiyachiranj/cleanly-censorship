@@ -43,7 +43,17 @@ def _line_col(text: str, offset: int) -> tuple[int, int]:
     return line, col
 
 
+def _safe_console() -> None:
+    """Never crash on characters the console can't show (e.g. Windows cp1252 when output is redirected)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None) -> int:
+    _safe_console()
     args = parse_args(argv)
     src = Path(args.input)
     if not src.is_file():
@@ -88,7 +98,7 @@ def main(argv=None) -> int:
         Path(args.report).write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     if not args.quiet:
-        print(f"Covered {len(report)} word(s) → {out}")
+        print(f"Covered {len(report)} word(s) -> {out}")
         for r in report:
             where = f"line {r['line']}, col {r['column']}: " if "line" in r else ""
             print(f"  {where}{r['masked']}  ({r['severity']}, {r['rule']})")
