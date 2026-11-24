@@ -30,17 +30,16 @@ Cleaned:   "What the ♪ ♪ ♪ was that?"
 
 ## How it works
 
+```mermaid
+flowchart LR
+    A[/"Input<br/>text · audio · video"/] --> B["Find words<br/>from your word list"]
+    B --> C["Cover them<br/>music · beep · mute · text"]
+    C --> D[/"Clean file<br/>+ report"/]
+    classDef step fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#0f172a
+    class A,B,C,D step
 ```
-Input ─┬─ Text / JSON / SRT ───────────────────────────► find words ─► censor text ─► output
-       │
-       └─ Audio / Video ─► extract audio ─► separate voice | background (optional)
-                                              │
-                         clean voice ─► transcribe + word timestamps ─► find words
-                                                                          │
-                      censor windows (music / beep / mute / duck / reverse)
-                                                                          │
-                rebuild only those windows ─► stitch into original ─► remux ─► output
-```
+
+The detailed flow, including which parts work today, is in [docs/ALGORITHM.md](docs/ALGORITHM.md#flow-diagram).
 
 1. **Get the words.** Text is read directly. For audio and video, speech is transcribed with word-level timestamps.
 2. **Separate (optional).** If there's background music, the voice is separated from it first, which makes transcription more accurate.
