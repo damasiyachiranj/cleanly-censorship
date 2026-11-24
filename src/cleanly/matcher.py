@@ -23,16 +23,30 @@ class Token:
     end: float
 
 
+HOW = {
+    "exact": "on the word list",
+    "variant": "a form of a listed word",
+    "disguised": "a disguised spelling (like sh1t or f.u.c.k)",
+    "wildcard": "a starred-out spelling (like f*ck)",
+    "phrase": "a listed phrase",
+}
+
+
 @dataclass(frozen=True)
 class Match:
     start: float
     end: float
     text: str
     entry: Entry
+    how: str = "exact"  # one of HOW's keys: why this matched
 
     @property
-    def severity(self) -> str:
-        return self.entry.severity
+    def category(self) -> str:
+        return self.entry.category
+
+    @property
+    def reason(self) -> str:
+        return HOW.get(self.how, self.how)
 
 
 def normalize(word: str) -> str:
@@ -92,7 +106,7 @@ class Matcher:
                 n = len(seq)
                 if tuple(norm[i:i + n]) == seq:
                     matches.append(Match(tokens[i].start, tokens[i + n - 1].end,
-                                         " ".join(t.text for t in tokens[i:i + n]), entry))
+                                         " ".join(t.text for t in tokens[i:i + n]), entry, "phrase"))
                     i += n
                     hit = True
                     break
@@ -100,9 +114,18 @@ class Matcher:
                 continue
             t = norm[i]
             entry = self.singles.get(t)
-            if entry is None and "*" in t:
-                entry = self._wildcard(t)
+            how = ""
             if entry is not None:
-                matches.append(Match(tokens[i].start, tokens[i].end, tokens[i].text, entry))
+                if tokens[i].text.lower().strip("'") != t:
+                    how = "disguised"
+                elif t == normalize(entry.word):
+                    how = "exact"
+                else:
+                    how = "variant"
+            elif "*" in t:
+                entry = self._wildcard(t)
+                how = "wildcard"
+            if entry is not None:
+                matches.append(Match(tokens[i].start, tokens[i].end, tokens[i].text, entry, how))
             i += 1
         return matches
