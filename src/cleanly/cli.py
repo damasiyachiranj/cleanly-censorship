@@ -181,6 +181,10 @@ def cmd_models(argv: list[str]) -> int:
 
     action = argv[0] if argv else "status"
     d = ml.model_dir()
+    if action == "path":  # used by the installers to show download progress
+        total = sum(size for size, _, _ in ml.MODEL["files"].values())
+        print(f"{d}\t{total}")
+        return 0
     if action == "status":
         ready = ml.is_ready()
         console.print(f"[bold]ML model[/] {ml.MODEL['repo']} @ {ml.MODEL['revision'][:7]} (Apache-2.0)")
