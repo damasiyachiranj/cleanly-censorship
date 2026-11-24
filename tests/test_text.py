@@ -4,42 +4,69 @@ import pytest
 
 from cleanly.matcher import Matcher, normalize, tokenize
 from cleanly.text import apply_effect, censor_file_text, censor_string, mask
-from cleanly.wordlist import Entry, UserList, build_list, load_standard
+from cleanly.wordlist import Entry, UserList, build_list, load_builtin
 
 
 @pytest.fixture(scope="module")
 def standard():
-    return load_standard("en")
+    return load_builtin("en")
 
 
-def m(standard, mode="standard", strictness="strict", user=None):
-    return Matcher(build_list(standard, mode, strictness, user))
+def m(builtin, mode="strict", user=None):
+    return Matcher(build_list(builtin, mode, user))
 
 
-# --- list building -------------------------------------------------------
-
-def test_strictness_filters(standard):
-    light = build_list(standard, strictness="light")
-    assert {e.severity for e in light} == {"slur"}
-    moderate = build_list(standard, strictness="moderate")
-    assert {e.severity for e in moderate} == {"strong", "slur"}
+def words_in(entries):
+    return {e.word for e in entries}
 
 
-def test_customized_removes_and_adds(standard):
-    user = UserList(remove=["damn"], add=[Entry("frick", severity="mild", source="user")])
-    words = {e.word for e in build_list(standard, "customized", "strict", user)}
-    assert "damn" not in words and "frick" in words and "hell" in words
+# --- modes ----------------------------------------------------------------
+
+def test_strict_is_everything(standard):
+    assert len(build_list(standard, "strict")) == len(standard)
 
 
-def test_user_words_ignore_strictness(standard):
-    user = UserList(add=[Entry("frick", severity="mild", source="user")])
-    words = {e.word for e in build_list(standard, "customized", "light", user)}
-    assert "frick" in words
+def test_standard_is_adult_subset(standard):
+    adult = words_in(build_list(standard, "standard"))
+    assert {"fuck", "shit", "cocaine", "kill yourself"} <= adult
+    assert not {"stupid", "damn", "beer", "kill", "weed"} & adult
+    assert adult < words_in(standard)
 
 
-def test_mylist_only_user_words(standard):
-    user = UserList(add=[Entry("spoiler", source="user")])
-    assert [e.word for e in build_list(standard, "mylist", "strict", user)] == ["spoiler"]
+def test_kids_only_words_pass_in_standard(standard):
+    text = "that's stupid, grab a beer"
+    assert censor_string(text, m(standard, "standard")).text == text
+    assert censor_string(text, m(standard, "strict")).text == "that's s*****, grab a b***"
+
+
+def test_customize_base_remove_add(standard):
+    user = UserList(base="standard", remove=["shit"], add=[Entry("frick", source="user")])
+    words = words_in(build_list(standard, "customize", user))
+    assert "shit" not in words and "frick" in words and "fuck" in words and "stupid" not in words
+
+
+def test_customize_from_strict(standard):
+    user = UserList(base="strict", remove=["hell"])
+    words = words_in(build_list(standard, "customize", user))
+    assert "hell" not in words and "stupid" in words
+
+
+def test_customize_remove_one_variant(standard):
+    user = UserList(base="strict", remove=["damned"])
+    r = censor_string("damn, damned", m(standard, "customize", user))
+    assert r.text == "d***, damned"
+
+
+def test_userlist_roundtrip(tmp_path):
+    u = UserList(base="strict", remove=["hell"], add=[Entry("frick", source="user")])
+    u.save(tmp_path / "l.json")
+    back = UserList.load(tmp_path / "l.json")
+    assert back.base == "strict" and back.remove == ["hell"] and back.add[0].word == "frick"
+
+
+def test_every_entry_valid(standard):
+    for e in standard:
+        assert e.level in ("standard", "strict") and e.category != "custom", e.word
 
 
 # --- matching -------------------------------------------------------------
@@ -50,7 +77,7 @@ def test_basic_and_variants(standard):
 
 
 def test_no_substring_matches(standard):
-    text = "The class will assess Scunthorpe hello shell"
+    text = "The class will assess Scunthorpe hello shell skill"
     assert censor_string(text, m(standard)).text == text
 
 
@@ -70,6 +97,14 @@ def test_trailing_exclamation_kept(standard):
 
 def test_stars_only_is_not_a_word(standard):
     assert censor_string("rated ****", m(standard)).matches == []
+
+
+@pytest.mark.parametrize("text,how", [
+    ("damn", "exact"), ("bullshit", "variant"), ("sh1t", "disguised"),
+    ("f*ck", "wildcard"), ("son of a bitch", "phrase"),
+])
+def test_match_reason(standard, text, how):
+    assert censor_string(text, m(standard)).matches[0].how == how
 
 
 def test_normalize():
