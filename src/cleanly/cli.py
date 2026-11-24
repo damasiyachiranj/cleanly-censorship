@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .job import TEXT_KINDS, Job, run, summarize
+from .ai import PROVIDERS, AIConfig
+from .job import TEXT_KINDS, Job, JobError, run, summarize
 from .text import EFFECTS
 from .ui import Tone, console, err_console
 from .wordlist import BASES, MODES, Entry, UserList, load_saved
@@ -44,6 +45,12 @@ def show_help() -> None:
     [dim]-e, --effect[/] stars [dim]d***[/] · full [dim]****[/] · symbol [dim]♪[/] · replace [dim](+ --replacement WORD)[/]
     [dim]-o, --output[/] where to save   [dim]-r, --report[/] save a report of every change
     [dim]customize:[/] --base strict|standard  --add w1,w2  --remove w3  [dim](or --list my_list.json)[/]
+    [dim]--ai[/] off · ollama [dim](local)[/] · anthropic · openai   [dim]--ai-model NAME  --ai-url URL[/]
+    [dim]  cloud keys come from env vars: ANTHROPIC_API_KEY / OPENAI_API_KEY (never typed on the command line)[/]
+    [dim]--ml-threshold 0.8[/]  how sure the ML layer must be (0-1)
+
+[bold]security layers[/]  [dim]1 word list (always) · 2 ML model (always) · 3 AI (optional)[/]
+  [accent]cleanly models[/]             ML model status · [accent]cleanly models download[/] · [accent]cleanly models verify[/]
 
 [bold]housekeeping[/]
   [accent]cleanly update[/]             get the latest version
@@ -56,6 +63,7 @@ def show_help() -> None:
   cleanly do notes.txt
   cleanly do subs.srt -m standard -e symbol
   cleanly do chat.json -m customize --base standard --add frick --remove hell
+  cleanly do notes.txt --ai ollama
 """)
 
 
@@ -72,6 +80,10 @@ def _do_parser() -> argparse.ArgumentParser:
     p.add_argument("--replacement", default="")
     p.add_argument("-r", "--report")
     p.add_argument("--language", default="en")
+    p.add_argument("--ai", choices=PROVIDERS, default="off")
+    p.add_argument("--ai-model", default="")
+    p.add_argument("--ai-url", default="")
+    p.add_argument("--ml-threshold", type=float, default=None)
     p.add_argument("--plain", action="store_true")
     p.add_argument("--fast", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true")
@@ -138,8 +150,14 @@ def cmd_do(argv: list[str]) -> int:
         err_console.print("[err]pick a different output name[/] so the original stays safe")
         return 2
 
+    from .ml import DEFAULT_THRESHOLD
+    threshold = DEFAULT_THRESHOLD if a.ml_threshold is None else a.ml_threshold
+    if not 0 < threshold < 1:
+        err_console.print("[err]--ml-threshold must be between 0 and 1[/]")
+        return 2
     job = Job(input=src, language=a.language, mode=a.mode, user=user, effect=a.effect,
-              replacement=a.replacement, output=out, report=Path(a.report) if a.report else None)
+              replacement=a.replacement, output=out, report=Path(a.report) if a.report else None,
+              ai=AIConfig(a.ai, a.ai_model, a.ai_url), threshold=threshold)
     tone = Tone(chill=not a.plain, animate=False if (a.fast or a.quiet) else None)
 
     try:
@@ -149,11 +167,54 @@ def cmd_do(argv: list[str]) -> int:
             console.print(f"covered {len(o.matches)} word(s) -> {job.out_path()}")
             return 0
         o = run(job, tone)
-    except (ValueError, OSError, json.JSONDecodeError) as e:
+    except (JobError, ValueError, OSError, json.JSONDecodeError) as e:
         err_console.print(f"[err]couldn't finish:[/] {e}")
         return 2
     summarize(o, tone)
     return 0
+
+
+def cmd_models(argv: list[str]) -> int:
+    from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn
+
+    from . import ml
+
+    action = argv[0] if argv else "status"
+    d = ml.model_dir()
+    if action == "status":
+        ready = ml.is_ready()
+        console.print(f"[bold]ML model[/] {ml.MODEL['repo']} @ {ml.MODEL['revision'][:7]} (Apache-2.0)")
+        console.print(f"  folder  {d}")
+        console.print(f"  status  " + ("[ok]ready[/]" if ready else "[warn]not downloaded[/] "
+                                         "· run [accent]cleanly models download[/]"))
+        return 0 if ready else 1
+    if action == "download":
+        if ml.is_ready(full=True):
+            console.print("[ok]✔[/] ML model already downloaded and verified")
+            return 0
+        with Progress(TextColumn("  {task.description}"), BarColumn(), DownloadColumn(),
+                      console=console, transient=True) as prog:
+            tasks: dict[str, int] = {}
+
+            def progress(name: str, got: int, total: int) -> None:
+                if name not in tasks:
+                    tasks[name] = prog.add_task(name, total=total)
+                prog.update(tasks[name], completed=got)
+
+            try:
+                ml.download(progress=progress)
+            except ml.ModelError as e:
+                err_console.print(f"[err]download failed:[/] {e}")
+                return 1
+        console.print(f"[ok]✔[/] ML model downloaded and verified → {d}")
+        return 0
+    if action == "verify":
+        ok = ml.is_ready(full=True)
+        console.print("[ok]✔ every file matches its fingerprint[/]" if ok
+                      else "[err]✘ missing or changed files.[/] Run [accent]cleanly models download[/]")
+        return 0 if ok else 1
+    err_console.print("usage: cleanly models [status|download|verify]")
+    return 2
 
 
 def cmd_start(argv: list[str]) -> int:
@@ -171,7 +232,7 @@ def cmd_start(argv: list[str]) -> int:
         return 130
     try:
         o = run(job, tone)
-    except (ValueError, OSError, json.JSONDecodeError) as e:
+    except (JobError, ValueError, OSError, json.JSONDecodeError) as e:
         err_console.print(f"[err]couldn't finish:[/] {e}")
         return 2
     summarize(o, tone)
@@ -192,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_start(argv)
         if first == "do":
             return cmd_do(rest)
+        if first in ("models", "model"):
+            return cmd_models(rest)
         if first in ("help", "-h", "--help"):
             show_help()
             return 0

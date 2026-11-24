@@ -33,7 +33,11 @@ LINES = {
     ),
     "load_list": ("loading the no-no list 📋", "Loading word list"),
     "read": ("reading your file 👀", "Reading file"),
-    "scan": ("scanning for sus words 🔍", "Finding listed words"),
+    "scan": ("layer 1: scanning for sus words 🔍", "Layer 1: word list"),
+    "ml": ("layer 2: ML vibe-checking every sentence 🧠", "Layer 2: ML model"),
+    "ai": ("layer 3: AI double-checking the context 🤖", "Layer 3: AI check"),
+    "model_dl": ("downloading the ML brain, one-time (~23 MB) 📦", "Downloading ML model (one-time, ~23 MB)"),
+    "model_load": ("waking up the ML model 🧠", "Loading ML model"),
     "cover_stars": ("starring out the chaos ✳️", "Covering words with stars"),
     "cover_full": ("blacking out the bad stuff ⬛", "Covering words"),
     "cover_symbol": ("dropping music notes on bad words 🎵", "Replacing words with ♪"),
@@ -90,6 +94,7 @@ CATEGORY_STYLE = {
     "slurs": "bold red", "harassment": "bold red", "self-harm": "bold red",
     "sexual": "magenta", "swearing": "dark_orange", "insults": "yellow",
     "drugs": "cyan", "alcohol": "cyan", "violence": "red", "custom": "blue",
+    "hate": "bold red", "toxic": "dark_orange", "other": "white",
 }
 
 

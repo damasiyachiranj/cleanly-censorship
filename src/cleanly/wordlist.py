@@ -120,7 +120,9 @@ def build_list(builtin: list[Entry], mode: str = "strict", user: UserList | None
     for e in base:
         variants = tuple(v for v in e.variants if v.lower() not in removed)
         trimmed.append(Entry(e.word, variants, e.category, e.level, e.source) if variants != e.variants else e)
-    return trimmed + list(user.add)
+    # Your own words come first, so if one is also built in, yours wins
+    # (and is treated as something you explicitly asked to cover).
+    return list(user.add) + trimmed
 
 
 # ---- Saved Customize settings ---------------------------------------------

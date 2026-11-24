@@ -8,6 +8,7 @@ import questionary
 from questionary import Choice, Style
 from rich.panel import Panel
 
+from . import ai as ai_mod
 from .job import EFFECT_DESC, TEXT_KINDS, Job, default_output, default_report
 from .ui import Tone, console
 from .wordlist import Entry, UserList, load_saved, saved_list_path
@@ -95,6 +96,49 @@ def _customize(c: bool, q: str) -> UserList:
     return user
 
 
+def _ask_ai(c: bool, q: str) -> ai_mod.AIConfig:
+    console.print("[dim]  layers 1 (word list) and 2 (ML model) always run. layer 3 is optional:[/]" if c
+                  else "[dim]  Layers 1 (word list) and 2 (ML model) always run. Layer 3 is optional.[/]")
+    provider = _ask(questionary.select(
+        "add an AI second opinion?" if c else "AI check (layer 3)",
+        choices=[
+            Choice("no thanks · word list + ML only", "off"),
+            Choice("local AI (Ollama) · private, free, runs on your PC", "ollama"),
+            Choice("Claude API · your own key, sends text snippets", "anthropic"),
+            Choice("OpenAI / compatible API · your own key, sends text snippets", "openai"),
+        ],
+        qmark=q, style=STYLE))
+    if provider == "off":
+        return ai_mod.AIConfig()
+    cfg = ai_mod.AIConfig(provider)
+    model = _ask(questionary.text("model" if c else "Model name", default=ai_mod.DEFAULT_MODEL[provider],
+                                  qmark=q, style=STYLE)).strip()
+    cfg.model = model
+    if provider == "ollama":
+        problem = ai_mod.check_ollama(cfg)
+        if problem:
+            console.print(f"  [warn]! {problem}[/]")
+            if not _ask(questionary.confirm("try anyway? (if it fails, Cleanly just skips the AI layer)",
+                                            default=False, qmark=q, style=STYLE)):
+                return ai_mod.AIConfig()
+        return cfg
+    if provider == "openai":
+        url = _ask(questionary.text("API base URL (enter for OpenAI)", default=ai_mod.DEFAULT_URL["openai"],
+                                    qmark=q, style=STYLE)).strip()
+        cfg.url = url
+    if not cfg.resolved().api_key:
+        console.print("  [dim]tip: set the key as an environment variable so you don't have to paste it "
+                      f"each time ({' or '.join(ai_mod.KEY_ENV[provider][::-1])})[/]")
+        key = _ask(questionary.password("paste your API key (hidden, used for this run only)",
+                                        qmark=q, style=STYLE)).strip()
+        if not key:
+            console.print("  [dim]no key, so the AI layer is off[/]")
+            return ai_mod.AIConfig()
+        cfg.api_key = key
+    console.print("  [dim]privacy: only short text snippets around flagged words are sent, never your whole file[/]")
+    return cfg
+
+
 def run_wizard(tone: Tone) -> Job | None:
     c = tone.chill
     q = "›" if c else "?"
@@ -135,7 +179,10 @@ def run_wizard(tone: Tone) -> Job | None:
         ))
         user = _customize(c, q) if mode == "customize" else None
 
-        # 4. How to cover
+        # 4. Optional AI layer
+        ai_cfg = _ask_ai(c, q)
+
+        # 5. How to cover
         effect = _ask(questionary.select(
             "how should we cover them?" if c else "Cover words with",
             choices=[
@@ -152,7 +199,7 @@ def run_wizard(tone: Tone) -> Job | None:
                 "replace them with?" if c else "Replacement word", default="beep",
                 validate=lambda s: bool(s.strip()) or "type a word", qmark=q, style=STYLE)).strip()
 
-        # 5. Output
+        # 6. Output
         out = Path(clean_path(_ask(questionary.text(
             "save the clean file as" if c else "Save clean file as",
             default=str(default_output(src)), qmark=q, style=STYLE,
@@ -165,9 +212,9 @@ def run_wizard(tone: Tone) -> Job | None:
 
         job = Job(input=src, language=language, mode=mode, user=user, effect=effect,
                   replacement=replacement, output=out,
-                  report=default_report(out) if want_report else None)
+                  report=default_report(out) if want_report else None, ai=ai_cfg)
 
-        # 6. Recap + go
+        # 7. Recap + go
         mode_desc = {"strict": "Strict (kids)", "standard": "Standard (adults)",
                      "customize": f"Customize (from {user.base})" if user else "Customize"}[mode]
         effect_desc = EFFECT_DESC[effect] if effect != "replace" else f'"{replacement}"'
@@ -175,6 +222,7 @@ def run_wizard(tone: Tone) -> Job | None:
             f"[dim]file[/]      {src}\n"
             f"[dim]language[/]  English\n"
             f"[dim]mode[/]      {mode_desc}\n"
+            f"[dim]layers[/]    word list + ML" + (f" + AI ({ai_cfg.label()})" if ai_cfg.enabled else "") + "\n"
             f"[dim]cover[/]     {effect_desc}\n"
             f"[dim]save as[/]   {job.out_path()}"
         )
