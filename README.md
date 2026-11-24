@@ -120,13 +120,45 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 
 ---
 
-## Try it now (v0.1: text, JSON and subtitle files)
+## Install
+
+One command installs everything Cleanly needs: Python 3.10+ and FFmpeg if they're missing, then Cleanly itself in its own private environment, plus the `cleanly` command.
+
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/damasiyachiranj/cleanly-censorship/main/install.ps1 | iex
+```
+
+**Linux** (Debian / Ubuntu / Kali, Fedora, Arch, openSUSE):
+```bash
+curl -fsSL https://raw.githubusercontent.com/damasiyachiranj/cleanly-censorship/main/install.sh | bash
+```
+
+Run the same command again to update. To remove Cleanly, add `-Uninstall` on Windows or `--uninstall` on Linux. Python and FFmpeg stay installed.
+
+| | Windows | Linux |
+|---|---|---|
+| Installs to | `%LOCALAPPDATA%\cleanly-censorship` | `~/.local/share/cleanly-censorship` |
+| Missing software from | `winget` | `apt` / `dnf` / `pacman` / `zypper` (asks for sudo) |
+| Skip FFmpeg (text only) | `-NoFfmpeg` | `--no-ffmpeg` |
+
+> **Prefer to check before running?** Good habit. Download the script, read it, then run it:
+> `curl -fsSLO https://raw.githubusercontent.com/damasiyachiranj/cleanly-censorship/main/install.sh && less install.sh && bash install.sh`
+> (Windows: open the `install.ps1` link in a browser, save it, read it, then run `.\install.ps1`.)
+
+### Manual install (developers)
 
 ```bash
 git clone https://github.com/damasiyachiranj/cleanly-censorship.git
 cd cleanly-censorship
-pip install -e .
+python -m venv .venv
+# Windows: .venv\Scripts\activate    Linux: source .venv/bin/activate
+pip install -e ".[dev]"
+```
 
+## Try it now (v0.1: text, JSON and subtitle files)
+
+```bash
 cleanly examples/sample.txt
 cleanly examples/sample.srt --mode customized --list examples/my_list.json --effect symbol
 cleanly notes.json --strictness moderate --effect replace --replacement "beep" --report report.json
