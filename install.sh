@@ -14,6 +14,7 @@
 #   --no-ffmpeg    don't install FFmpeg (only needed for audio/video)
 #   --dir PATH     install somewhere else
 #   --branch NAME  install a different branch (default: main)
+#   --from PATH    install from a local copy of the code (for development)
 #   --uninstall    remove Cleanly (leaves Python, Git and FFmpeg alone)
 
 set -euo pipefail
@@ -24,6 +25,7 @@ INSTALL_DIR="${CLEANLY_HOME:-$HOME/.local/share/cleanly-censorship}"
 BIN_DIR="$HOME/.local/bin"
 WANT_FFMPEG=1
 UNINSTALL=0
+FROM_DIR=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,7 +33,8 @@ while [ $# -gt 0 ]; do
     --dir) INSTALL_DIR="$2"; shift ;;
     --branch) BRANCH="$2"; shift ;;
     --uninstall) UNINSTALL=1 ;;
-    -h|--help) sed -n '2,21p' "$0" 2>/dev/null || echo "See $REPO_URL"; exit 0 ;;
+    --from) FROM_DIR="$2"; shift ;;
+    -h|--help) sed -n '2,22p' "$0" 2>/dev/null || echo "See $REPO_URL"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -47,7 +50,12 @@ if [ "$UNINSTALL" = 1 ]; then
   say "Removing Cleanly from $INSTALL_DIR"
   rm -rf "$INSTALL_DIR"
   rm -f "$BIN_DIR/cleanly"
-  ok "Removed. Python, Git and FFmpeg were left installed."
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc" ] && grep -qF "# added by cleanly installer" "$rc"; then
+      sed -i '/# added by cleanly installer/d' "$rc"
+    fi
+  done
+  ok "Removed. Python, Git and FFmpeg were left installed. Your saved word list (~/.config/cleanly) was kept."
   exit 0
 fi
 
@@ -120,14 +128,22 @@ if [ "$WANT_FFMPEG" = 1 ]; then
 fi
 
 # ---- Download or update Cleanly ------------------------------------------
-say "Getting Cleanly ($BRANCH) into $INSTALL_DIR"
 mkdir -p "$(dirname "$INSTALL_DIR")"
-if [ -d "$INSTALL_DIR/.git" ] && have git; then
+if [ -n "$FROM_DIR" ]; then
+  say "Copying Cleanly from $FROM_DIR into $INSTALL_DIR"
+  [ -f "$FROM_DIR/pyproject.toml" ] || die "$FROM_DIR doesn't look like a Cleanly folder."
+  rm -rf "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
+  tar -C "$FROM_DIR" --exclude=.venv --exclude=.git --exclude=build --exclude=.pytest_cache --exclude='*.egg-info' -cf - . | tar -C "$INSTALL_DIR" -xf -
+  ok "Copied"
+elif [ -d "$INSTALL_DIR/.git" ] && have git; then
+  say "Updating Cleanly ($BRANCH) in $INSTALL_DIR"
   git -C "$INSTALL_DIR" fetch --quiet origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout --quiet "$BRANCH"
   git -C "$INSTALL_DIR" reset --quiet --hard "origin/$BRANCH"
   ok "Updated to the latest version"
 else
+  say "Getting Cleanly ($BRANCH) into $INSTALL_DIR"
   if ! have git; then
     pkg_install "git" "git" "git" "git" >/dev/null 2>&1 || true
   fi
@@ -158,6 +174,9 @@ say "Installing Cleanly into its own Python environment"
 "$INSTALL_DIR/.venv/bin/python" -m pip install --quiet "$INSTALL_DIR"
 ok "Installed"
 
+# Marks this folder as installer-managed, so `cleanly update/uninstall` may touch it.
+echo "Installed by install.sh. Safe to remove with: cleanly uninstall" > "$INSTALL_DIR/.cleanly-installed"
+
 # ---- `cleanly` command ----------------------------------------------------
 mkdir -p "$BIN_DIR"
 ln -sf "$INSTALL_DIR/.venv/bin/cleanly" "$BIN_DIR/cleanly"
@@ -165,15 +184,31 @@ ln -sf "$INSTALL_DIR/.venv/bin/cleanly" "$BIN_DIR/cleanly"
 version="$("$BIN_DIR/cleanly" --version)" || die "Installed, but 'cleanly --version' failed."
 ok "$version is ready"
 
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"  # added by cleanly installer'
+NEED_NEW_TERMINAL=0
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    warn "$BIN_DIR is not on your PATH yet. Add this line to ~/.bashrc or ~/.zshrc, then open a new terminal:"
-    echo "      export PATH=\"\$HOME/.local/bin:\$PATH\""
+    # Add ~/.local/bin to PATH in the shells you use (zsh is Kali's default).
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+      shell_name="$(basename "$rc" | tr -d '.' | sed 's/rc$//')"
+      if [ -f "$rc" ] || [ "$(basename "${SHELL:-}")" = "$shell_name" ]; then
+        if ! grep -qF "# added by cleanly installer" "$rc" 2>/dev/null; then
+          printf '\n%s\n' "$PATH_LINE" >> "$rc"
+          ok "Added cleanly to your PATH in $rc"
+        fi
+      fi
+    done
+    NEED_NEW_TERMINAL=1
     ;;
 esac
 
 echo
-echo "Try it:  cleanly $INSTALL_DIR/examples/sample.txt"
-echo "Update:  run this installer again"
-echo "Remove:  bash $INSTALL_DIR/install.sh --uninstall"
+if [ "$NEED_NEW_TERMINAL" = 1 ]; then
+  echo "Open a new terminal (or run: source ~/.zshrc), then:"
+else
+  echo "Ready! Try:"
+fi
+echo "  cleanly start       guided mode"
+echo "  cleanly help        all commands"
+echo "Update:  cleanly update      Remove:  cleanly uninstall"

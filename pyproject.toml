@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleanly-censorship"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find listed words in text, audio and video and cover them with music, a beep or replacement text. Runs locally."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "damasiyachiranj" }]
-dependencies = []
+dependencies = ["rich>=13", "questionary>=2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

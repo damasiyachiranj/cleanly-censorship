@@ -4,7 +4,7 @@
 
 Cleanly was started to make content safer to consume: for parents, teachers, companies and creators who want a clean version of a video, recording or document without sending it anywhere.
 
-> 🚧 **Status: early development (v1 in progress).** Text, JSON and subtitle (.srt) censoring works now. Audio and video are next. The features below describe what v1 is being built to do.
+> 🚧 **Status: early development (v1 in progress).** Text, JSON and subtitle (.srt) censoring works now, with a guided terminal mode. Audio and video are next. The features below describe what v1 is being built to do.
 
 ---
 
@@ -21,8 +21,8 @@ Cleaned:   "What the ♪ ♪ ♪ was that?"
 
 - **Three input types:** text (`.txt`, `.json`, `.srt`), audio and video
 - **Several ways to cover a word:** music clip, beep, mute, lowered volume (duck), reversed audio, or `***` / replacement text
-- **Built-in Standard word list** for English, with a severity tag on every word
-- **Your own list:** edit the Standard list, or use only your own words
+- **Three modes:** Strict (kids), Standard (adults) and Customize (start from either, add or remove words)
+- **Guided mode:** `cleanly start` asks you everything step by step, then explains every change
 - **Review before export:** see every word that was found, with a 2-second preview, and uncover any false matches
 - **Private by design:** no sign-up, no upload; everything runs on your computer
 
@@ -50,29 +50,21 @@ The detailed flow, including which parts work today, is in [docs/ALGORITHM.md](d
 
 ---
 
-## Word lists
+## Modes
 
-| Mode | What it does |
-|---|---|
-| **Standard** | The built-in list, no changes |
-| **Customized** | Start from Standard: remove words you don't want censored, add your own |
-| **My List** | Only your own words |
+| Mode | For | What gets covered |
+|---|---|---|
+| **Strict** | Kids | Everything harmful: swearing, sexual words, insults, slurs, harassment, drugs, alcohol, violence and weapons, self-harm terms |
+| **Standard** | Adults | Swearing, sexual words, slurs, harassment and drug names. Kid-only words like *stupid*, *beer* or *kill* pass. |
+| **Customize** | Anyone | Pick Strict or Standard as a starting point, then let words through and add your own |
 
 ```
-final list = (Standard − words removed) + words added
+Customize list = (Strict or Standard − words you let through) + your own words
 ```
 
-### Strictness
+Every built-in word has a **category** (swearing, sexual, insults, slurs, harassment, drugs, alcohol, violence, self-harm) and a **level**: `standard` words are covered in both modes, `strict` words only in Strict. The list is plain JSON in [`src/cleanly/data/standard_en.json`](src/cleanly/data/standard_en.json).
 
-Every word in the Standard list has a severity tag:
-
-| Level | What gets censored |
-|---|---|
-| **Light** | Slurs only |
-| **Moderate** | Strong words + slurs |
-| **Strict** | Everything, including mild words |
-
-Lists are plain JSON files, so they can be exported and shared, for example between teachers.
+Customize settings can be saved and are offered again next time. They live in `~/.config/cleanly/my_list.json` (Windows: `%APPDATA%\cleanly\my_list.json`) and can be shared, for example between teachers.
 
 ---
 
@@ -97,7 +89,7 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 | Voice separation | [Demucs](https://github.com/facebookresearch/demucs) |
 | Audio processing | numpy, soundfile |
 | Video | [FFmpeg](https://ffmpeg.org/) |
-| CLI | argparse (standard library) |
+| Terminal UI | [rich](https://github.com/Textualize/rich), [questionary](https://github.com/tmbo/questionary) |
 | Local web UI | Gradio / FastAPI |
 
 ---
@@ -105,7 +97,10 @@ Speech recognition is not perfect. Accents, fast speech and loud background musi
 ## Roadmap
 
 ### v1: English
-- [x] Text censoring with the Standard list (JSON, severity tags): `.txt`, `.json`, `.srt`
+- [x] Text censoring with the built-in list (JSON, categories and levels): `.txt`, `.json`, `.srt`
+- [x] Strict / Standard / Customize modes
+- [x] Guided terminal mode with live progress and explained results
+- [x] One-command installers, `cleanly update` and `cleanly uninstall`
 - [ ] Basic audio beep from a command line tool
 - [ ] Word timestamps, music clips, stitching with crossfades
 - [ ] Video support and voice separation
@@ -156,28 +151,45 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
-## Try it now (v0.1: text, JSON and subtitle files)
+## Use it
+
+**Easiest:** the guided mode asks you everything, one question at a time:
 
 ```bash
-cleanly examples/sample.txt
-cleanly examples/sample.srt --mode customized --list examples/my_list.json --effect symbol
-cleanly notes.json --strictness moderate --effect replace --replacement "beep" --report report.json
+cleanly start
+```
+
+Pick a language, drop in your file, choose a mode and how words get covered. Cleanly shows its progress live and ends with a table of every change and why it was made.
+
+![Cleanly cleaning a text file in the terminal](docs/demo.svg)
+
+**One-liners:**
+
+```bash
+cleanly do notes.txt                                   # Strict mode, d*** style
+cleanly do subs.srt -m standard -e symbol              # adults list, ♪ instead of words
+cleanly do chat.json -m customize --base standard --add frick --remove hell
+cleanly do notes.txt -e replace --replacement beep -r report.json
 ```
 
 | Option | Values |
 |---|---|
-| `--mode` | `standard` (default), `customized`, `mylist` |
-| `--strictness` | `light`, `moderate`, `strict` (default) |
-| `--list` | your list file: `{"remove": [...], "add": [...]}` (see `examples/my_list.json`) |
-| `--effect` | `stars` → `d***` (default), `full` → `****`, `symbol` → `♪`, `replace` → your word |
-| `--report` | save a JSON report of what was covered (words shown masked) |
+| `-m`, `--mode` | `strict` (default, kids), `standard` (adults), `customize` |
+| `--base` | for customize: start from `strict` or `standard` |
+| `--add` / `--remove` | for customize: comma-separated words (or `--list my_list.json`) |
+| `-e`, `--effect` | `stars` → `d***` (default), `full` → `****`, `symbol` → `♪`, `replace` → your word |
+| `-o`, `--output` | where to save (default: `name.clean.ext`, the original is never changed) |
+| `-r`, `--report` | save a JSON report of every change (words shown masked) |
+| `--plain` / `--fast` / `-q` | serious tone / no animations / one-line output |
+
+**Housekeeping:** `cleanly update`, `cleanly uninstall`, `cleanly help`, `cleanly version`.
 
 Run the tests with `pip install -e ".[dev]"` and `pytest`.
 
 ### Planned (audio and video)
 
 ```bash
-cleanly video.mp4 --mode standard --strictness strict --effect music
+cleanly do video.mp4 -m strict -e music
 ```
 
 The step-by-step algorithms are in [docs/ALGORITHM.md](docs/ALGORITHM.md).
@@ -186,7 +198,7 @@ The step-by-step algorithms are in [docs/ALGORITHM.md](docs/ALGORITHM.md).
 
 ## Contributing
 
-Contributions are welcome, especially to the word lists. Open an issue or a pull request to suggest words, variants or severity changes.
+Contributions are welcome, especially to the word lists. Open an issue or a pull request to suggest words, variants, categories or level changes.
 
 ## License
 

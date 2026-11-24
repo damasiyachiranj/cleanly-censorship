@@ -58,7 +58,7 @@ if ($Uninstall) {
     Say "Removing Cleanly from $Dir"
     Remove-FromUserPath $BinDir
     if (Test-Path $Dir) { Remove-Item -Recurse -Force $Dir }
-    Ok "Removed. Python and FFmpeg were left installed."
+    Ok "Removed. Python and FFmpeg were left installed. Your saved word list (%APPDATA%\cleanly) was kept."
     return
 }
 
@@ -168,6 +168,9 @@ Invoke-Checked $venvPy @("-m", "pip", "install", "--quiet", "--upgrade", "pip") 
 Invoke-Checked $venvPy @("-m", "pip", "install", "--quiet", $src) "Installing Cleanly"
 Ok "Installed"
 
+# Marks this folder as installer-managed, so `cleanly update/uninstall` may touch it.
+Set-Content -Path (Join-Path $Dir ".cleanly-installed") -Value "Installed by install.ps1. Safe to remove with: cleanly uninstall"
+
 # ---- `cleanly` command ----------------------------------------------------
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 $shim = Join-Path $BinDir "cleanly.cmd"
@@ -190,7 +193,7 @@ if ($LASTEXITCODE -ne 0) { Die "Installed, but 'cleanly --version' failed." }
 Ok "$version is ready"
 
 Write-Host ""
-Write-Host "Open a new PowerShell window, then try:"
-Write-Host "  cleanly `"$src\examples\sample.txt`""
-Write-Host "Update:  run this installer again"
-Write-Host "Remove:  & `"$src\install.ps1`" -Uninstall"
+Write-Host "Open a new PowerShell window, then:"
+Write-Host "  cleanly start       guided mode"
+Write-Host "  cleanly help        all commands"
+Write-Host "Update:  cleanly update      Remove:  cleanly uninstall"
